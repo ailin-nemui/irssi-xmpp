@@ -16,6 +16,7 @@
  */
 
 #include <string.h>
+#include <glib.h>
 
 #include "muc-role.h"
 

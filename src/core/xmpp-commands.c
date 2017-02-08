@@ -24,6 +24,7 @@
 #include "settings.h"
 #include "signals.h"
 #include "window-item-def.h"
+#include <irssi/src/fe-common/core/printtext.h>
 
 #include "xmpp-commands.h"
 #include "xmpp-queries.h"
