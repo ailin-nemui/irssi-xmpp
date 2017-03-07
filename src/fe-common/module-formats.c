@@ -33,6 +33,18 @@ FORMAT_REC fecommon_xmpp_formats[] = {
 	{ "format_pgp_keyid", "(pgp: $0)", 1, { 0 } },
 
 	/* ---- */
+	{ NULL, "Presence", 0, { 0 } },
+
+	{ "presence_unavailable", "%K(◦) $[14]0 ->%n", 1, { 0 } },
+	{ "presence_error", "%r(!) $[14]0 ->%n", 1, { 0 } },
+	{ "presence_xa", "%r(x) $[14]0 ->%n", 1, { 0 } },
+	{ "presence_dnd", "%r(x) $[14]0 ->%n", 1, { 0 } },
+	{ "presence_away", "%y(-) $[14]0 ->%n", 1, { 0 } },
+	{ "presence_available", "%_%g(+) $[14]0%_ ->%n", 1, { 0 } },
+	{ "presence_chat", "%_%g(+) $[14]0%_ ->%n", 1, { 0 } },
+	{ "presence_online", "%_%g(+) $[14]0%_ ->%n", 1, { 0 } },
+
+	/* ---- */
 	{ NULL, "Roster", 0, { 0 } },
 
 	{ "roster_group", " {hilight $0}:", 1, { 0 } },
@@ -44,14 +56,15 @@ FORMAT_REC fecommon_xmpp_formats[] = {
 	/* ---- */
 	{ NULL, "Subscription", 0, { 0 } },
 
-	{ "suscribe", "$0: wants to subscribe to your presence {comment $1} (accept or deny?)", 2, { 0, 0 } },
-	{ "suscribed", "$0: wants you to see his/her presence", 1, { 0 } },
-	{ "unsuscribe", "$0: doesn't want to see your presence anymore", 1 , { 0 } },
-	{ "unsuscribed", "$0: doesn't want you to see his/her presence anymore", 1 , { 0 } },
+	{ "subscribe", "$0: wants to subscribe to your presence {comment $1} (accept or deny?)", 2, { 0, 0 } },
+	{ "subscribed", "$0: wants you to see their presence", 1, { 0 } },
+	{ "unsubscribe", "$0: doesn't want to see your presence anymore", 1 , { 0 } },
+	{ "unsubscribed", "$0: doesn't want you to see their presence anymore", 1 , { 0 } },
 
 	/* ---- */
 	{ NULL, "Message", 0, { 0 } },
 
+	{ "message_room", "$0", 1,  { 0 } },
 	{ "message_event", "$0: $1", 2,  { 0, 0 } },
 	{ "message_not_delivered", "$0: cannot deliver message {comment $1}", 2,  { 0, 0 } },
 	{ "message_timestamp", "[{timestamp $0}] $1", 2, { 0, 0 } },
@@ -65,6 +78,7 @@ FORMAT_REC fecommon_xmpp_formats[] = {
 	{ NULL, "Channel", 0, { 0 } },
 
 	{ "joinerror", "Cannot join to room {channel $0} {comment $1}", 2, { 0, 0 } },
+	{ "destroyerror", "Cannot destroy room {channel $0} {comment $1}", 2, { 0, 0 } },
 
 	/* ---- */
 	{ NULL, "Presence", 0, { 0 } },
@@ -89,7 +103,7 @@ FORMAT_REC fecommon_xmpp_formats[] = {
 	{ "default_event", "$1 $2", 3, { 0, 0, 0 } },
 	{ "default_error", "ERROR $1 $2", 3, { 0, 0, 0 } },
 
-	{ NULL, "Regisration", 0, { 0 } },
+	{ NULL, "Registration", 0, { 0 } },
 
 	{ "xmpp_registration_started", "Registering {nick $0@$1}...", 2, { 0, 0 } },
 	{ "xmpp_registration_succeed", "Registration of {nick $0@$1} succeeded", 2, { 0, 0 } },

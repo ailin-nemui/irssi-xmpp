@@ -52,13 +52,7 @@ disco_have_feature(GSList *list, const char *feature)
 static void
 cleanup_features(GSList *list)
 {
-	GSList *tmp, *next;
-
-	for (tmp = list; tmp != NULL; tmp = next) {
-		next = tmp->next;
-		g_free(tmp->data);
-		list = g_slist_remove(list, tmp->data);
-	}
+	g_slist_free_full(list, g_free);
 }
 
 void
@@ -69,7 +63,7 @@ disco_request(XMPP_SERVER_REC *server, const char *dest)
 	char *recoded;
 
 	g_return_if_fail(IS_XMPP_SERVER(server));
-	g_return_if_fail(dest != NULL && dest != '\0');
+	g_return_if_fail(dest != NULL && *dest != '\0');
 	recoded = xmpp_recode_out(dest);
 	lmsg = lm_message_new_with_sub_type(recoded, LM_MESSAGE_TYPE_IQ,
 	    LM_MESSAGE_SUB_TYPE_GET);
@@ -155,6 +149,12 @@ sig_disconnected(XMPP_SERVER_REC *server)
 	server->server_features = NULL;
 }
 
+static void
+sig_disco_add_feature(const char *feature)
+{
+	disco_add_feature(g_strdup(feature));
+}
+
 void
 disco_init(void)
 {
@@ -163,6 +163,7 @@ disco_init(void)
 	signal_add("server connected", sig_connected);
 	signal_add("server disconnected", sig_disconnected);
 	signal_add("xmpp recv iq", sig_recv_iq);
+	signal_add("xmpp register feature", sig_disco_add_feature);
 }
 
 void

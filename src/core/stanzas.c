@@ -51,12 +51,14 @@ handle_stanza(LmMessageHandler *handler, LmConnection *connection,
 	XMPP_SERVER_REC *server;
 	int type;
 	const char *id;
-	char *from, *to, *raw;
+	char *from, *to, *raw, *xml;
 
 	if ((server = XMPP_SERVER(user_data)) == NULL)
 		return LM_HANDLER_RESULT_REMOVE_MESSAGE;
-	raw = xmpp_recode_in(lm_message_node_to_string(lmsg->node));
+	xml = lm_message_node_to_string(lmsg->node);
+	raw = xmpp_recode_in(xml);
 	signal_emit("xmpp xml in", 2, server, raw);
+	g_free(xml);
 	g_free(raw);
 	type = lm_message_get_sub_type(lmsg);
 	id = lm_message_node_get_attribute(lmsg->node, "id");
@@ -92,20 +94,21 @@ handle_stanza(LmMessageHandler *handler, LmConnection *connection,
 }
 
 static void
+free_message_handler(LmMessageHandler *h)
+{
+	if (lm_message_handler_is_valid(h))
+		lm_message_handler_invalidate(h);
+	lm_message_handler_unref(h);
+}
+
+static void
 unregister_stanzas(XMPP_SERVER_REC *server)
 {
-	GSList *tmp, *next;
-
 	if (!IS_XMPP_SERVER(server))
 		return;
-	for (tmp = server->msg_handlers; tmp != NULL; tmp = next) {
-		next = tmp->next;
-		if (lm_message_handler_is_valid(tmp->data))
-			lm_message_handler_invalidate(tmp->data);
-		lm_message_handler_unref(tmp->data);
-		server->msg_handlers =
-		    g_slist_remove(server->msg_handlers, tmp->data);
-	}
+	g_slist_free_full(server->msg_handlers,
+	    (GDestroyNotify)free_message_handler);
+	server->msg_handlers = NULL;
 }
 
 static void
