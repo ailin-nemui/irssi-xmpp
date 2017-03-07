@@ -18,24 +18,38 @@
 #include <string.h>
 
 #include "module.h"
-#include "levels.h"
+#include <irssi/src/core/levels.h>
 #include "module-formats.h"
-#include "printtext.h"
-#include "settings.h"
-#include "signals.h"
-#include "window-items.h"
+#include <irssi/src/fe-common/core/printtext.h>
+#include <irssi/src/core/settings.h>
+#include <irssi/src/core/signals.h>
+#include <irssi/src/fe-common/core/window-items.h>
 
 #include "xmpp-servers.h"
 #include "rosters-tools.h"
 
 const char *fe_xmpp_presence_show[] = {
-	"Offline",
-	"error",
-	"Not Available",
-	"Busy",
+	"Unavailable",
+	"Error",
+	"Extended Away",
+	"Do Not Disturb",
 	"Away",
 	"Available",
-	"Free for Chat"
+	"Free for Chat",
+	"Online",
+	NULL
+};
+
+const int fe_xmpp_presence_show_format[] = {
+	XMPPTXT_PRESENCE_UNAVAILABLE,
+	XMPPTXT_PRESENCE_ERROR,
+	XMPPTXT_PRESENCE_XA,
+	XMPPTXT_PRESENCE_DND,
+	XMPPTXT_PRESENCE_AWAY,
+	XMPPTXT_PRESENCE_AVAILABLE,
+	XMPPTXT_PRESENCE_CHAT,
+	XMPPTXT_PRESENCE_ONLINE,
+	0,
 };
 
 static char *
@@ -99,10 +113,10 @@ sig_presence_changed(XMPP_SERVER_REC *server, const char *full_jid,
 	    format_get_text(MODULE_NAME, NULL, server, NULL,
 		XMPPTXT_FORMAT_JID, full_jid);
 	if (status != NULL)
-		printformat_module_window(MODULE_NAME, window, MSGLEVEL_CRAP,
+		printformat_module_window(MODULE_NAME, window, MSGLEVEL_CRAP | MSGLEVEL_MODES,
 		    XMPPTXT_PRESENCE_CHANGE_REASON, name, msg, status);
 	else
-		printformat_module_window(MODULE_NAME, window, MSGLEVEL_CRAP,
+		printformat_module_window(MODULE_NAME, window, MSGLEVEL_CRAP | MSGLEVEL_MODES,
 		    XMPPTXT_PRESENCE_CHANGE, name, msg);
 	g_free(name);
 }

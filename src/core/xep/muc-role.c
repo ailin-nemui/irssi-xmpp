@@ -15,29 +15,33 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "module.h"
-#include <irssi/src/core/modules.h>
+#include <string.h>
 
-#include "xep/text-xep.h"
+#include <glib.h>
 
-void
-text_xmpp_init(void)
+#include "muc-role.h"
+
+const char *xmpp_role[] = {
+	"none",
+	"moderator",
+	"participant",
+	"visitor",
+	NULL
+};
+
+int
+xmpp_nicklist_get_role(const char *role)
 {
-	text_xep_init();
-
-	module_register("xmpp", "text");
+	if (role != NULL) {
+		if (g_ascii_strcasecmp(role,
+		    xmpp_role[XMPP_ROLE_MODERATOR]) == 0)
+			return XMPP_ROLE_MODERATOR;
+		else if (g_ascii_strcasecmp(role,
+		    xmpp_role[XMPP_ROLE_PARTICIPANT]) == 0)
+			return XMPP_ROLE_PARTICIPANT;
+		else if (g_ascii_strcasecmp(role,
+		    xmpp_role[XMPP_ROLE_VISITOR]) == 0)
+			return XMPP_ROLE_VISITOR;
+	}
+	return XMPP_ROLE_NONE;
 }
-
-void
-text_xmpp_deinit(void)
-{
-	text_xep_deinit();
-}
-
-#ifdef IRSSI_ABI_VERSION
-void
-text_xmpp_abicheck(int * version)
-{
-	*version = IRSSI_ABI_VERSION;
-}
-#endif

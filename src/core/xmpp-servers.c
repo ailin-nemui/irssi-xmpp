@@ -22,15 +22,32 @@
 #include <termios.h>
 
 #include "module.h"
-#include "network.h"
-#include "recode.h"
-#include "settings.h"
-#include "signals.h"
+#include <irssi/src/core/network.h>
+#include <irssi/src/core/recode.h>
+#include <irssi/src/core/settings.h>
+#include <irssi/src/core/signals.h>
 
 #include "xmpp-servers.h"
 #include "protocol.h"
 #include "rosters-tools.h"
 #include "tools.h"
+
+/* IRSSI_ABI_VERSION was introduced in 0.8.18 */
+#if !defined(IRSSI_ABI_VERSION) || IRSSI_ABI_VERSION < 6
+#  define use_tls use_ssl
+#endif
+
+#define XMPP_SERVERS_ERROR xmpp_servers_error_quark ()
+
+static GQuark
+xmpp_servers_error_quark (void)
+{
+	static GQuark q;
+
+	if (G_UNLIKELY (q == 0))
+		q = g_quark_from_static_string ("xmpp-server-error-quark");
+	return q;
+}
 
 static void
 channels_join(SERVER_REC *server, const char *data, int automatic)
@@ -132,17 +149,24 @@ server_cleanup(XMPP_SERVER_REC *server)
 {
 	if (!IS_XMPP_SERVER(server))
 		return;
-	if (server->timeout_tag)
+	if (server->timeout_tag) {
 		g_source_remove(server->timeout_tag);
+		server->timeout_tag = 0;
+	}
+	if (!server->lmconn) {
+		return;
+	}
 	if (lm_connection_get_state(server->lmconn) !=
-	    LM_CONNECTION_STATE_CLOSED)
+	    LM_CONNECTION_STATE_CLOSED) {
 		lm_connection_close(server->lmconn, NULL);
+	}
 	lm_connection_unref(server->lmconn);
-	g_free(server->jid);
-	g_free(server->user);
-	g_free(server->domain);
-	g_free(server->resource);
-	g_free(server->ping_id);
+	server->lmconn = NULL;
+	g_free(server->jid); server->jid = NULL;
+	g_free(server->user); server->user = NULL;
+	g_free(server->domain); server->domain = NULL;
+	g_free(server->resource); server->resource = NULL;
+	g_free(server->ping_id); server->ping_id = NULL;
 }
 
 SERVER_REC *
@@ -190,7 +214,7 @@ xmpp_server_init_connect(SERVER_CONNECT_REC *connrec)
 	server->connect_pid = -1;
 
 	if (server->connrec->port <= 0)
-		server->connrec->port = (server->connrec->use_ssl) ?
+		server->connrec->port = (server->connrec->use_tls) ?
 		    LM_CONNECTION_DEFAULT_PORT_SSL : LM_CONNECTION_DEFAULT_PORT;
 
 	if (conn->real_jid == NULL)
@@ -211,7 +235,6 @@ xmpp_server_init_connect(SERVER_CONNECT_REC *connrec)
 
 	server->timeout_tag = 0;
 	server_connect_init((SERVER_REC *)server);
-	server->connect_tag = 1;
 	return (SERVER_REC *)server;
 }
 
@@ -284,8 +307,6 @@ lm_auth_cb(LmConnection *connection, gboolean success,
 
 	/* finnish connection process */
 	lookup_servers = g_slist_remove(lookup_servers, server);
-	g_source_remove(server->connect_tag);
-	server->connect_tag = -1;
 	server->show = XMPP_PRESENCE_AVAILABLE;
 	server->connected = TRUE;
 	if (server->timeout_tag) {
@@ -323,6 +344,8 @@ get_password(char *prompt)
 	/* Echo OFF, and assure we can prompt and get input */
 	to.c_lflag &= ~(ECHO | ECHOE | ECHOK | ECHONL);
 	to.c_lflag |= ICANON;
+	to.c_iflag &= ~IGNCR;
+	to.c_iflag |= ICRNL;
 	to.c_cc[VMIN] = 255;
 	tcsetattr(fd, TCSANOW, &to);
 
@@ -373,7 +396,7 @@ lm_open_cb(LmConnection *connection, gboolean success,
 		g_free(host);
 	} else
 		signal_emit("server connecting", 1, server);
-	if (server->connrec->use_ssl)
+	if (server->connrec->use_tls)
 		signal_emit("xmpp server status", 2, server, 
 		    "Using SSL encryption.");
 	else if (lm_ssl_get_use_starttls(lm_connection_get_ssl(server->lmconn)))
@@ -415,15 +438,15 @@ set_ssl(LmConnection *lmconn, GError **error, gpointer user_data,
 	LmSSL *ssl;
 
 	if (!lm_ssl_is_supported() && error != NULL) {
-		*error = g_new(GError, 1);
-		(*error)->message =
-		    g_strdup("SSL is not supported in this build");
+		if (error != NULL)
+			*error = g_error_new_literal(XMPP_SERVERS_ERROR, 1,
+			    "SSL is not supported in this build");
 		return FALSE;
 	}
 	ssl = lm_ssl_new(NULL, lm_ssl_cb, user_data, NULL);
 	lm_connection_set_ssl(lmconn, ssl);
 	if (use_starttls)
-		lm_ssl_use_starttls(ssl, TRUE, FALSE);
+		lm_ssl_use_starttls(ssl, TRUE, TRUE);
 	lm_ssl_unref(ssl);
 	return TRUE;
 }
@@ -440,28 +463,23 @@ set_proxy(LmConnection *lmconn, GError **error)
 	if (str != NULL && g_ascii_strcasecmp(str, XMPP_PROXY_HTTP) == 0)
 		type = LM_PROXY_TYPE_HTTP;
 	else {
-		if (error != NULL) {
-			*error = g_new(GError, 1);
-			(*error)->message = g_strdup("Invalid proxy type");
-		}
+		if (error != NULL)
+			*error = g_error_new_literal(XMPP_SERVERS_ERROR, 1,
+			    "Invalid proxy type");
 		return FALSE;
 	}
 	str = settings_get_str("xmpp_proxy_address");
 	if (str == NULL || *str == '\0') {
-		if (error != NULL) {
-			*error = g_new(GError, 1);
-			(*error)->message =
-			    g_strdup("Proxy address not specified");
-		}
+		if (error != NULL)
+			*error = g_error_new_literal(XMPP_SERVERS_ERROR, 1,
+			    "Proxy address not specified");
 		return FALSE;
 	}
 	int port = settings_get_int("xmpp_proxy_port");
 	if (port <= 0) {
-		if (error != NULL) {
-			*error = g_new(GError, 1);
-			(*error)->message =
-			    g_strdup("Invalid proxy port range");
-		}
+		if (error != NULL)
+			*error = g_error_new_literal(XMPP_SERVERS_ERROR, 1,
+			    "Invalid proxy port range");
 		return FALSE;
 	}
 	proxy = lm_proxy_new_with_server(type, str, port);
@@ -507,20 +525,22 @@ xmpp_server_connect(XMPP_SERVER_REC *server)
 		return;
 	error = NULL;
 	err_msg = NULL;
-	if (server->connrec->use_ssl) {
+	if (server->connrec->use_tls) {
 		if (!set_ssl(server->lmconn, &error, server, FALSE)) {
 			err_msg = "Cannot init ssl";
 			goto err;
 		}
 	} else
 		set_ssl(server->lmconn, &error, server, TRUE);
-	if (settings_get_bool("xmpp_use_proxy")
-	    && !set_proxy(server->lmconn, &error)) {
-		err_msg = "Cannot set proxy";
-		goto err;
+	if (settings_get_bool("xmpp_use_proxy")) {
+		if (!set_proxy(server->lmconn, &error)) {
+			err_msg = "Cannot set proxy";
+			goto err;
+		}
 	}
 	lm_connection_set_disconnect_function(server->lmconn,
 	    lm_close_cb, server, NULL);
+	server->connect_time = time(NULL);
 	lookup_servers = g_slist_append(lookup_servers, server);
 	signal_emit("server looking", 1, server);
 	server->timeout_tag = g_timeout_add(
