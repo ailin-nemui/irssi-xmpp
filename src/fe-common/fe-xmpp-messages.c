@@ -18,20 +18,20 @@
 #include <string.h>
 
 #include "module.h"
-#include "channels.h"
-#include "levels.h"
+#include <irssi/src/core/channels.h>
+#include <irssi/src/core/levels.h>
 #include "module-formats.h"
-#include "nicklist.h"
-#include "printtext.h"
-#include "recode.h"
-#include "settings.h"
-#include "signals.h"
-#include "window-items.h"
-#include "fe-queries.h"
-#include "fe-common/core/module-formats.h"
-#include "fe-common/core/fe-messages.h"
-#include "fe-common/irc/module-formats.h"
-#include "irssi-version.h"
+#include <irssi/src/core/nicklist.h>
+#include <irssi/src/fe-common/core/printtext.h>
+#include <irssi/src/core/recode.h>
+#include <irssi/src/core/settings.h>
+#include <irssi/src/core/signals.h>
+#include <irssi/src/fe-common/core/window-items.h>
+#include <irssi/src/fe-common/core/fe-queries.h>
+#include <irssi/src/fe-common/core/module-formats.h>
+#include <irssi/src/fe-common/core/fe-messages.h>
+#include <irssi/src/fe-common/irc/module-formats.h>
+#include <irssi/irssi-version.h>
 
 #include "xmpp-servers.h"
 
@@ -189,6 +189,24 @@ sig_own_action(SERVER_REC *server, const char *msg, const char *target,
 }
 
 static void
+sig_room(SERVER_REC *server, const char *msg, const char *target)
+{
+	CHANNEL_REC *channel;
+	char *freemsg = NULL;
+
+	g_return_if_fail(server != NULL);
+	g_return_if_fail(msg != NULL);
+	g_return_if_fail(target != NULL);
+
+	channel = channel_find(server, target);
+	if (settings_get_bool("emphasis"))
+		msg = freemsg = expand_emphasis((WI_ITEM_REC *)channel, msg);
+	printformat_module(MODULE_NAME, server, target, MSGLEVEL_PUBLIC,
+	    XMPPTXT_MESSAGE_ROOM, msg);
+	g_free(freemsg);
+}
+
+static void
 sig_error(XMPP_SERVER_REC *server, const char *full_jid,
     const char *msg)
 {
@@ -257,6 +275,7 @@ fe_xmpp_messages_init(void)
 	signal_add("message xmpp history action", sig_history_action);
 	signal_add("message xmpp action", sig_action);
 	signal_add("message xmpp own_action", sig_own_action);
+	signal_add("message xmpp room", sig_room);
 	signal_add("message xmpp error", sig_error);
 	signal_add_first("message xmpp own_public", sig_message_own_public);
 	signal_add_first("message own_public", sig_message_ignore);
@@ -269,6 +288,7 @@ fe_xmpp_messages_deinit(void)
 	signal_remove("message xmpp history action", sig_history_action);
 	signal_remove("message xmpp action", sig_action);
 	signal_remove("message xmpp own_action", sig_own_action);
+	signal_remove("message xmpp room", sig_room);
 	signal_remove("message xmpp error", sig_error);
 	signal_remove("message xmpp own_public", sig_message_own_public);
 	signal_remove("message own_public", sig_message_ignore);
