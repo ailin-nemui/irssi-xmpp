@@ -1,13 +1,15 @@
 #ifndef __MUC_H
 #define __MUC_H
 
-#include "channels.h"
-#include "channels-setup.h"
+#include <irssi/src/core/channels.h>
+#include <irssi/src/core/channels-setup.h>
 #include "xmpp-servers.h"
 #include "tools.h"
 
 #define XMLNS_MUC	"http://jabber.org/protocol/muc"
 #define XMLNS_MUC_USER	"http://jabber.org/protocol/muc#user"
+#define XMLNS_MUC_OWNER	"http://jabber.org/protocol/muc#owner"
+#define XMLNS_MUC_ADMIN	"http://jabber.org/protocol/muc#admin"
 
 #define muc_extract_nick(jid)						\
 	xmpp_extract_resource(jid)
@@ -32,7 +34,7 @@
 
 #define STRUCT_SERVER_REC XMPP_SERVER_REC
 struct _MUC_REC {
-	#include "channel-rec.h"
+	#include <irssi/src/core/channel-rec.h>
 
 	char	*nick;
 };
@@ -50,9 +52,18 @@ enum {
 };
 
 __BEGIN_DECLS
+
+void muc_destroy(XMPP_SERVER_REC *, MUC_REC *, const char *, const char *);
 void muc_join(XMPP_SERVER_REC *, const char *, gboolean);
 void muc_part(MUC_REC *, const char *);
 void muc_nick(MUC_REC *, const char *);
+void muc_get_affiliation(XMPP_SERVER_REC *, MUC_REC *, const char *);
+void muc_set_affiliation(XMPP_SERVER_REC *, MUC_REC *, const char *,
+		const char *, const char *);
+void muc_get_role(XMPP_SERVER_REC *, MUC_REC *, const char *);
+void muc_set_role(XMPP_SERVER_REC *, MUC_REC *, const char *,
+		const char *, const char *);
+void muc_set_mode(XMPP_SERVER_REC *, MUC_REC *, const char *);
 MUC_REC	*get_muc(XMPP_SERVER_REC *, const char *);
 
 void muc_init(void);

@@ -23,8 +23,8 @@
 #include <string.h>
 
 #include "module.h"
-#include "settings.h"
-#include "signals.h"
+#include <irssi/src/core/settings.h>
+#include <irssi/src/core/signals.h>
 #include "tools.h"
 
 #include "xmpp-servers.h"
@@ -36,7 +36,7 @@
 #define XMLNS_REGISTRATION "http://jabber.org/features/iq-register"
 #define XMLNS_REGISTER "jabber:iq:register"
 
-gboolean set_ssl(LmConnection *, GError **, gpointer);
+gboolean set_ssl(LmConnection *, GError **, gpointer, gboolean);
 gboolean set_proxy(LmConnection *, GError **);
 
 struct register_data {
@@ -73,6 +73,24 @@ rd_cleanup(struct register_data *rd)
 	g_free(rd);
 }
 
+static int
+registration_error_map(LmMessageNode *node)
+{
+	if (lm_message_node_get_child(node, "not-authorized") != NULL)
+		return REGISTRATION_ERROR_UNAUTHORIZED;
+	if (lm_message_node_get_child(node, "registration-required") != NULL)
+		return REGISTRATION_ERROR_UNAUTHORIZED_REG;
+	if (lm_message_node_get_child(node, "feature-not-implemented") != NULL)
+		return REGISTRATION_ERROR_UNIMPLEMENTED;
+	if (lm_message_node_get_child(node, "service-unavailable") != NULL)
+		return REGISTRATION_ERROR_UNAVAILABLE;
+	if (lm_message_node_get_child(node, "conflict") != NULL)
+		return REGISTRATION_ERROR_CONFLICT;
+	if (lm_message_node_get_child(node, "remote-server-timeout") != NULL)
+		return REGISTRATION_ERROR_TIMEOUT;
+	return REGISTRATION_ERROR_UNKNOWN;
+}
+
 static LmHandlerResult
 handle_register(LmMessageHandler *handler, LmConnection *connection,
     LmMessage *lmsg, gpointer user_data)
@@ -80,17 +98,22 @@ handle_register(LmMessageHandler *handler, LmConnection *connection,
 	LmMessageNode *node;
 	struct register_data *rd;
 	const char *id;
+	const char *error;
 	char *cmd;
-	int error;
+	int code;
 
 	rd = user_data;
 	id = lm_message_node_get_attribute(lmsg->node, "id");
 	if (id == NULL || (id != NULL && strcmp(id, rd->id) != 0))
 		return LM_HANDLER_RESULT_REMOVE_MESSAGE;
 	if ((node = lm_message_node_get_child(lmsg->node, "error")) != NULL) {
-		error = atoi(lm_message_node_get_attribute(node, "code"));
+		error = lm_message_node_get_attribute(node, "code");
+		if (error == NULL)
+			code = registration_error_map(node);
+		else
+			code = atoi(error);
 		signal_emit("xmpp registration failed", 3, rd->username,
-		    rd->domain, GINT_TO_POINTER(error));
+		    rd->domain, GINT_TO_POINTER(code));
 	} else {
 		signal_emit("xmpp registration succeed", 2, rd->username,
 		    rd->domain);
@@ -143,7 +166,7 @@ register_lm_close_cb(LmConnection *connection, LmDisconnectReason reason,
 		return;
 	rd = user_data;
 	signal_emit("xmpp registration failed", 3, rd->username, rd->domain,
-	    REGISTRATION_ERROR_UNKNOWN);
+	    REGISTRATION_ERROR_CLOSED);
 	rd_cleanup(rd);
 }
 
@@ -173,8 +196,13 @@ start_registration(struct register_data *rd)
 	GError *error = NULL;
 
 	lmconn = lm_connection_new(NULL);
-	if (rd->use_ssl && !set_ssl(lmconn, &error, NULL))
-		goto err;
+	if (rd->use_ssl) {
+		if (!set_ssl(lmconn, &error, NULL, FALSE))
+			goto err;
+	} else {
+		if (!set_ssl(lmconn, &error, NULL, TRUE))
+			goto err;
+	}
 	if (settings_get_bool("xmpp_use_proxy") && !set_proxy(lmconn, &error))
 		goto err;
 	if (rd->port <= 0)
@@ -190,13 +218,8 @@ start_registration(struct register_data *rd)
 	lm_connection_set_disconnect_function(lmconn, register_lm_close_cb,
 	    rd, NULL);
 	if (!lm_connection_open(lmconn, register_lm_open_cb, rd, NULL,
-	    &error)) {
-		rd_cleanup(rd);
-		signal_emit("xmpp register error", 3, rd->username, rd->domain,
-		    error != NULL ? error->message : NULL);
-		if (error != NULL)
-			g_error_free(error);
-	}
+	    &error))
+		goto err;
 	return;
 
 err:
@@ -205,6 +228,7 @@ err:
 	if (error != NULL)
 		g_error_free(error);
 	lm_connection_unref(lmconn);
+	rd_cleanup(rd);
 }
 
 /* SYNTAX: XMPPREGISTER [-ssl] [-host <server>] [-port <port>]
