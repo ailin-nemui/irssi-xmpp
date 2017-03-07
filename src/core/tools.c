@@ -157,7 +157,7 @@ char *call_gpg(char *switches, char *input, char *input2, \
 
 
 static gboolean
-xmpp_get_local_charset(G_CONST_RETURN char **charset)
+xmpp_get_local_charset(const char **charset)
 {
 	*charset = settings_get_str("term_charset");
 	if (is_valid_charset(*charset))
@@ -168,7 +168,7 @@ xmpp_get_local_charset(G_CONST_RETURN char **charset)
 char *
 xmpp_recode_out(const char *str)
 {
-	G_CONST_RETURN char *charset;
+	const char *charset;
 	char *recoded, *stripped;
 
 	if (str == NULL || *str == '\0')
@@ -188,7 +188,7 @@ xmpp_recode_out(const char *str)
 char *
 xmpp_recode_in(const char *str)
 {
-	G_CONST_RETURN char *charset;
+	const char *charset;
 	char *recoded, *to = NULL;
 
 	if (str == NULL || *str == '\0')
