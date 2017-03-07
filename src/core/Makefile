@@ -18,10 +18,12 @@ SRCS=	xmpp-commands.c \
 	xep/datetime.c \
 	xep/delay.c \
 	xep/disco.c \
+	xep/muc-affiliation.c \
 	xep/muc-commands.c \
 	xep/muc-events.c \
 	xep/muc-nicklist.c \
 	xep/muc-reconnect.c \
+	xep/muc-role.c \
 	xep/muc.c \
 	xep/oob.c \
 	xep/ping.c \
@@ -31,6 +33,6 @@ SRCS=	xmpp-commands.c \
 	xep/version.c \
 	xep/xep.c
 
-LIB_LIBS = `pkg-config --libs loudmouth-1.0`
+LIB_LIBS = `pkg-config --libs loudmouth-1.0 | sed -e's/-lidn//'`
 
 include ../rules.mk

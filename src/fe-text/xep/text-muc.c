@@ -16,10 +16,10 @@
  */
 
 #include "module.h"
-#include "settings.h"
-#include "signals.h"
-#include "statusbar-item.h"
-#include "window-items.h"
+#include <irssi/src/core/settings.h>
+#include <irssi/src/core/signals.h>
+#include <irssi/src/fe-text/statusbar-item.h>
+#include <irssi/src/fe-common/core/window-items.h>
 
 #include "xmpp-servers.h"
 #include "xep/muc.h"
@@ -30,9 +30,11 @@ update_nick_statusbar(XMPP_SERVER_REC *server, MUC_REC *channel,
 {
 	char *newnick;
 
-	newnick = IS_MUC(channel) ? channel->nick
-	    : settings_get_bool("xmpp_set_nick_as_username") ?
-	    server->user : server->jid;
+	newnick = (channel != NULL && IS_MUC(channel)) ? channel->nick
+	    : (settings_get_bool("xmpp_set_nick_as_username") ?
+	    server->user : server->jid);
+	if (newnick == NULL)
+		return;
 	if (strcmp(server->nick, newnick) == 0)
 		return;
 	g_free(server->nick);
@@ -69,6 +71,8 @@ sig_window_destroyed(WINDOW_REC *window)
 static void
 sig_nick_changed(MUC_REC *channel)
 {
+	g_return_if_fail(channel != NULL);
+
 	if (!IS_MUC(channel))
 		return;
 	if (MUC(active_win->active) == channel)

@@ -16,13 +16,13 @@
  */
 
 #include "module.h"
-#include "ignore.h"
-#include "levels.h"
+#include <irssi/src/core/ignore.h>
+#include <irssi/src/core/levels.h>
 #include "module-formats.h"
-#include "printtext.h"
-#include "signals.h"
-#include "fe-common/core/module-formats.h"
-#include "fe-common/irc/module-formats.h"
+#include <irssi/src/fe-common/core/printtext.h>
+#include <irssi/src/core/signals.h>
+#include <irssi/src/fe-common/core/module-formats.h>
+#include <irssi/src/fe-common/irc/module-formats.h>
 
 #include "xmpp-servers.h"
 #include "xep/registration.h"
@@ -30,7 +30,7 @@
 static void
 sig_failed(const char *username, const char *domain, gpointer error)
 {
-	char *reason;
+	char *reason, *str = NULL;
 
 	switch(GPOINTER_TO_INT(error)) {
 	case REGISTRATION_ERROR_UNAUTHORIZED:
@@ -48,18 +48,26 @@ sig_failed(const char *username, const char *domain, gpointer error)
 	case REGISTRATION_ERROR_TIMEOUT_SERVER:
 		reason = "Connection times out";
 		break;
+	case REGISTRATION_ERROR_CLOSED:
+		reason = "Connection was closed";
+		break;
 	case REGISTRATION_ERROR_CONNECTION:
 		reason = "Cannot open connection";
 		break;
 	case REGISTRATION_ERROR_INFO:
 		reason = "Cannot send registration information";
 		break;
+	case REGISTRATION_ERROR_UNKNOWN:
+		reason = "Cannot register account (unknown reason)";
+		break;
 	default:
-		reason = "Cannot register account";
+		reason = str = g_strdup_printf("Cannot register account (%d)",
+		    GPOINTER_TO_INT(error));
 	}
 	printformat_module(MODULE_NAME, NULL, NULL,
 	    MSGLEVEL_CRAP, XMPPTXT_REGISTRATION_FAILED, username, domain,
 	    reason);
+	g_free(str);
 }
 
 static void
