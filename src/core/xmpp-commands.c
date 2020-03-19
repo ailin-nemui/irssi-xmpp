@@ -23,6 +23,7 @@
 #include <irssi/src/core/recode.h>
 #include <irssi/src/core/settings.h>
 #include <irssi/src/core/signals.h>
+#include <irssi/src/fe-common/core/printtext.h>
 #include <irssi/src/core/window-item-def.h>
 
 #include "xmpp-commands.h"
