@@ -16,8 +16,7 @@
  */
 
 #define _POSIX_SOURCE 1
-#define _BSD_SOURCE 1
-#define _SVID_SOURCE 1
+#define _DEFAULT_SOURCE 1
 #include <stdio.h>
 
 #include <string.h>
