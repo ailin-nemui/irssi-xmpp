@@ -17,10 +17,14 @@
 
 #include "module.h"
 #include "signals.h"
+#include "settings.h"
 
 #include "xmpp-servers.h"
 #include "rosters-tools.h"
 #include "tools.h"
+#include "xep/disco.h"
+
+char *pgp_passwd = NULL;
 
 static void
 sig_set_presence(XMPP_SERVER_REC *server, const int show, const char *status,
@@ -28,6 +32,7 @@ sig_set_presence(XMPP_SERVER_REC *server, const int show, const char *status,
 {
 	LmMessage *lmsg;
 	char *str;
+	const char *pgp_keyid;
 
 	g_return_if_fail(IS_XMPP_SERVER(server));
 	if (!xmpp_presence_changed(show, server->show, status,
@@ -35,23 +40,46 @@ sig_set_presence(XMPP_SERVER_REC *server, const int show, const char *status,
 		signal_stop();
 		return;
 	}
+
+	lmsg = lm_message_new(NULL, LM_MESSAGE_TYPE_PRESENCE);
 	server->show = show;
-	g_free(server->away_reason);
-	server->away_reason = g_strdup(status);
+
 	if (!xmpp_priority_out_of_bound(priority))
 		server->priority = priority;
-	lmsg = lm_message_new(NULL, LM_MESSAGE_TYPE_PRESENCE);
+
 	if (show != XMPP_PRESENCE_AVAILABLE)
 		lm_message_node_add_child(lmsg->node, "show",
 		    xmpp_presence_show[server->show]);
-	if (status != NULL) {
-		str = xmpp_recode_out(server->away_reason);
-		lm_message_node_add_child(lmsg->node, "status", str);
-		g_free(str);
+
+	if(server->away_reason) g_free(server->away_reason);
+	server->away_reason = NULL;
+
+	if(!status) status = "";
+	server->away_reason = g_strdup(status);
+	str = xmpp_recode_out(server->away_reason);
+	lm_message_node_add_child(lmsg->node, "status", str);
+	if(!str) str = g_strdup("");
+
+	if((pgp_keyid = settings_get_str("xmpp_pgp"))) {
+		LmMessageNode *x;
+		char *signature = call_gpg("-ab", str, NULL, 0, 1);
+		disco_add_feature("jabber:x:signed");
+		disco_add_feature("jabber:x:encrypted");
+
+		if(signature) {
+			x = lm_message_node_add_child(lmsg->node, "x", signature);
+			lm_message_node_set_attribute(x, "xmlns", "jabber:x:signed");
+
+			free(signature);
+		}
 	}
+
+	g_free(str);
+
 	str = g_strdup_printf("%d", server->priority);
 	lm_message_node_add_child(lmsg->node, "priority", str);
 	g_free(str);
+
 	signal_emit("xmpp send presence", 2, server, lmsg);
 	lm_message_unref(lmsg);
 	if (show != XMPP_PRESENCE_AVAILABLE) /* away */
@@ -64,7 +92,7 @@ static void
 sig_recv_message(XMPP_SERVER_REC *server, LmMessage *lmsg, const int type,
     const char *id, const char *from, const char *to)
 {
-	LmMessageNode *node;
+	LmMessageNode *node, *encrypted;
 	char *str, *subject;
 	
 	if ((type != LM_MESSAGE_SUB_TYPE_NOT_SET
@@ -81,9 +109,38 @@ sig_recv_message(XMPP_SERVER_REC *server, LmMessage *lmsg, const int type,
 		signal_emit("message private", 4, server, subject, from, from);
 		g_free(subject);
 	}
-	node = lm_message_node_get_child(lmsg->node, "body");
-	if (node != NULL && node->value != NULL && *node->value != '\0') {
-		str = xmpp_recode_in(node->value);
+
+	str = NULL;
+	encrypted = lm_find_node(lmsg->node, "x", "xmlns", "jabber:x:encrypted");
+	if(encrypted && encrypted->value) {
+		/* TODO: indicate the message was encrypted */
+		/* TODO: verify signatures */
+		char *send_to_gpg = malloc(sizeof( \
+			"-----BEGIN PGP MESSAGE-----\n\n" \
+			"-----END PGP MESSAGE-----\n")+ \
+			strlen(encrypted->value)+1 \
+		);
+		char *from_gpg;
+
+		send_to_gpg[0] = '\0';
+		strcat(send_to_gpg, "-----BEGIN PGP MESSAGE-----\n\n");
+		strcat(send_to_gpg, encrypted->value);
+		strcat(send_to_gpg, "-----END PGP MESSAGE-----\n");
+
+		from_gpg = call_gpg("-d", send_to_gpg, NULL, 0, 0);
+		if(from_gpg) {
+			str = xmpp_recode_in(from_gpg);
+			free(from_gpg);
+		}
+
+		free(send_to_gpg);
+	} else {
+		node = lm_message_node_get_child(lmsg->node, "body");
+		if (node != NULL && node->value != NULL && *node->value != '\0') {
+			str = xmpp_recode_in(node->value);
+		}
+	}
+	if(str) {
 		if (g_ascii_strncasecmp(str, "/me ", 4) == 0)
 			signal_emit("message xmpp action", 5,
 			    server, str+4, from, from,

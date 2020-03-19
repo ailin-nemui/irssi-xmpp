@@ -78,6 +78,7 @@ send_message(SERVER_REC *server, const char *target, const char *msg,
 {
 	LmMessage *lmsg;
 	char *str, *recoded;
+	char *encrypt_to = NULL;
 
 	if (!IS_XMPP_SERVER(server))
 		return;
@@ -88,7 +89,20 @@ send_message(SERVER_REC *server, const char *target, const char *msg,
 		lmsg = lm_message_new_with_sub_type(recoded,
 		    LM_MESSAGE_TYPE_MESSAGE, LM_MESSAGE_SUB_TYPE_GROUPCHAT);
 	} else {
+		XMPP_ROSTER_USER_REC *user;
 		str = rosters_resolve_name(XMPP_SERVER(server), target);
+		if(str) {
+			user = rosters_find_user(((XMPP_SERVER_REC*)server)->roster, \
+			                         str, NULL, NULL);
+			if(user) {
+				XMPP_ROSTER_RESOURCE_REC *res;
+				res = rosters_find_resource(user->resources, \
+					xmpp_extract_resource(str));
+				if(res && res->pgp_encrypt) {
+					encrypt_to = res->pgp_keyid;
+				}
+			}
+		}
 		recoded = xmpp_recode_out(str != NULL ? str : target);
 		g_free(str);
 		lmsg = lm_message_new_with_sub_type(recoded,
@@ -99,6 +113,31 @@ send_message(SERVER_REC *server, const char *target, const char *msg,
 	str = recode_in(server, msg, target);
 	recoded = xmpp_recode_out(str);
 	g_free(str);
+
+	if(encrypt_to) {
+		LmMessageNode *x;
+		char *encrypted;
+		char switches[sizeof("-aesR 00000000")] = "-ae";
+		if(settings_get_str("xmpp_pgp")) strcat(switches, "s");
+		strcat(switches, "R ");
+		strcat(switches, encrypt_to);
+		encrypted = call_gpg(switches, recoded, NULL, 0, 1);
+
+		x = lm_message_node_add_child(lmsg->node, "x", encrypted);
+		lm_message_node_set_attribute(x, "xmlns", "jabber:x:encrypted");
+
+		free(encrypted);
+
+		g_free(recoded);
+		recoded = g_strdup("[This message is encrypted.]");
+	} else if(settings_get_str("xmpp_pgp")) {
+		LmMessageNode *x;
+		char *msigned = call_gpg("-ab", recoded, NULL, 0, 1);
+		x = lm_message_node_add_child(lmsg->node, "x", msigned);
+		lm_message_node_set_attribute(x, "xmlns", "jabber:x:signed");
+		free(msigned);
+	}
+
 	lm_message_node_add_child(lmsg->node, "body", recoded);
 	g_free(recoded);
 	signal_emit("xmpp send message", 2, server, lmsg);
@@ -282,8 +321,8 @@ lm_auth_cb(LmConnection *connection, gboolean success,
  * Displays input prompt on command line and takes input data from user
  * From irssi-silc (silc-client/lib/silcutil/silcutil.c)
  */
-static char *
-get_password()
+char *
+get_password(char *prompt)
 {
 	char input[2048], *ret = NULL;
 	int fd;
@@ -310,7 +349,7 @@ get_password()
 	to.c_cc[VMIN] = 255;
 	tcsetattr(fd, TCSANOW, &to);
 
-	printf("\tXMPP Password: ");
+	printf("\n\n%s", prompt);
 	fflush(stdout);
 
 	memset(input, 0, sizeof(input));
@@ -334,6 +373,7 @@ get_password()
 	ret = g_strdup(input);
 	memset(input, 0, sizeof(input));
 #endif /* DISABLE_TERMIOS */
+	signal_emit("send command", 1, "redraw");
 	return ret;
 }
 
@@ -373,8 +413,7 @@ lm_open_cb(LmConnection *connection, gboolean success,
 	    || *(server->connrec->password) == '\0'
 	    || *(server->connrec->password) == '\r') {
 		g_free_not_null(server->connrec->password);
-		server->connrec->prompted_password = get_password();
-		signal_emit("send command", 1, "redraw");
+		server->connrec->prompted_password = get_password("XMPP Password: ");
 		if (server->connrec->prompted_password != NULL)
 			server->connrec->password =
 			    g_strdup(server->connrec->prompted_password);
@@ -526,22 +565,14 @@ err:
 static void
 sig_connected(XMPP_SERVER_REC *server)
 {
-	LmMessage *lmsg;
-	char *str;
-
 	if (!IS_XMPP_SERVER(server) || (server->connrec->reconnection
 	    && xmpp_presence_changed(server->connrec->show, server->show,
 	    server->connrec->away_reason, server->away_reason,
 	    server->connrec->priority, server->priority)))
 		return;
+
 	/* set presence available */
-	lmsg = lm_message_new_with_sub_type(NULL, LM_MESSAGE_TYPE_PRESENCE,
-	    LM_MESSAGE_SUB_TYPE_AVAILABLE);
-	str = g_strdup_printf("%d", server->priority);
-	lm_message_node_add_child(lmsg->node, "priority", str);
-	g_free(str);
-	signal_emit("xmpp send presence", 2, server, lmsg);
-	lm_message_unref(lmsg);
+	signal_emit("xmpp set presence", 4, server, XMPP_PRESENCE_AVAILABLE, "", server->priority);
 }
 
 static void
@@ -598,6 +629,8 @@ xmpp_servers_init(void)
 
 	settings_add_int("xmpp", "xmpp_priority", 0);
 	settings_add_int("xmpp", "xmpp_priority_away", -1);
+	settings_add_str("xmpp", "xmpp_pgp", NULL);
+	settings_add_str("xmpp", "xmpp_pgp_agent", NULL);
 	settings_add_bool("xmpp_lookandfeel", "xmpp_set_nick_as_username",
 	    FALSE);
 	settings_add_bool("xmpp_proxy", "xmpp_use_proxy", FALSE);

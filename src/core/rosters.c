@@ -139,6 +139,8 @@ create_resource(const char *name)
 	resource->show= XMPP_PRESENCE_UNAVAILABLE;
 	resource->status = NULL;
 	resource->composing_id = NULL;
+	resource->pgp_keyid = NULL;
+	resource->pgp_encrypt = 0;
 	return resource;
 }
 
@@ -153,6 +155,7 @@ cleanup_resource(gpointer data, gpointer user_data)
 	g_free(resource->name);
 	g_free(resource->status);
 	g_free(resource->composing_id);
+	if(resource->pgp_keyid) free(resource->pgp_keyid);
 	g_free(resource);
 }
 
@@ -342,7 +345,8 @@ update_user(XMPP_SERVER_REC *server, const char *jid, const char *subscription,
 
 static void
 update_user_presence(XMPP_SERVER_REC *server, const char *full_jid,
-    const char *show_str, const char *status, const char *priority_str)
+    const char *show_str, const char *status, const char *priority_str,
+    char *pgp_keyid)
 {
 	XMPP_ROSTER_GROUP_REC *group;
 	XMPP_ROSTER_USER_REC *user;
@@ -356,6 +360,7 @@ update_user_presence(XMPP_SERVER_REC *server, const char *full_jid,
 	new = own = FALSE;
 	jid = xmpp_strip_resource(full_jid);
 	res = xmpp_extract_resource(full_jid);
+	if(res == NULL) res = g_strdup("");
 	user = rosters_find_user(server->roster, jid, &group, NULL);
 	if (user == NULL) {
 		if (!(own = strcmp(jid, server->jid) == 0
@@ -386,6 +391,7 @@ update_user_presence(XMPP_SERVER_REC *server, const char *full_jid,
 		resource->show = show;
 		resource->status = g_strdup(status);
 		resource->priority = priority;
+		resource->pgp_keyid = pgp_keyid;
 		if (!own) {
 			user->resources = g_slist_sort(
 			    user->resources, func_sort_resource);
@@ -484,8 +490,8 @@ static void
 sig_recv_presence(XMPP_SERVER_REC *server, LmMessage *lmsg, const int type,
     const char *id, const char *from, const char *to)
 {
-	LmMessageNode *node, *node_show, *node_priority;
-	char *status;
+	LmMessageNode *node, *node_show, *node_priority, *signature;
+	char *status, *pgp_keyid = NULL;
 
 	if (server->ischannel(SERVER(server), from))
 		return;
@@ -495,9 +501,39 @@ sig_recv_presence(XMPP_SERVER_REC *server, LmMessage *lmsg, const int type,
 		node = lm_message_node_get_child(lmsg->node, "status");
 		status = node != NULL ? xmpp_recode_in(node->value) : NULL;
 		node_priority = lm_message_node_get_child(lmsg->node, "priority");
+		signature = lm_find_node(lmsg->node, "x", "xmlns", "jabber:x:signed");
+		if(signature) {
+			char *send_to_gpg = malloc(sizeof( \
+				"-----BEGIN PGP SIGNATURE-----\n\n" \
+				"-----END PGP SIGNATURE-----\n")+ \
+				strlen(signature->value)+1 \
+			);
+			char *send_status = status ? status : "";
+			char *from_gpg;
+
+			send_to_gpg[0] = '\0';
+			strcat(send_to_gpg, "-----BEGIN PGP SIGNATURE-----\n\n");
+			strcat(send_to_gpg, signature->value);
+			strcat(send_to_gpg, "-----END PGP SIGNATURE-----\n");
+
+			from_gpg = call_gpg("--verify", send_to_gpg, send_status, 1, 0);
+			free(send_to_gpg);
+
+			/* If there is a good signature, grab the key ID */
+			if(from_gpg && strstr(from_gpg, "Good signature from")) {
+				char *s = strstr(from_gpg, "key ID ");
+				if(s) {
+					pgp_keyid = malloc(sizeof(*pgp_keyid)*9);
+					strncpy(pgp_keyid, s+7, 8);
+					pgp_keyid[8] = '\0';
+				}
+			}
+			if(from_gpg) free(from_gpg);
+		}
 		update_user_presence(server, from,
 		    node_show != NULL ? node_show->value : NULL, status,
-		    node_priority != NULL ? node_priority->value : NULL);
+		    node_priority != NULL ? node_priority->value : NULL,
+		    pgp_keyid);
 		g_free(status);
 		break;
 	case LM_MESSAGE_SUB_TYPE_UNAVAILABLE:

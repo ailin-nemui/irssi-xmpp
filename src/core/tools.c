@@ -15,17 +15,146 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#define _POSIX_SOURCE 1
+#define _BSD_SOURCE 1
+#define _SVID_SOURCE 1
+#include <stdio.h>
+
 #include <string.h>
+#include <sys/wait.h>
 
 #include "module.h"
 #include "recode.h"
 #include "settings.h"
 #include "signals.h"
+#include "xmpp-servers.h"
+#include "popenRWE.h"
 
 #define XMPP_PRIORITY_MIN -128
 #define XMPP_PRIORITY_MAX 127
 
 static const char *utf8_charset = "UTF-8";
+
+char *call_gpg_round(char *switches, char *input, char *input2, \
+               int get_stderr, int snip_data, unsigned round) {
+	int pass_pipe[2], input2_pipe[2], rwepipe[3], childpid, in_data = !snip_data;
+	FILE* cstream;
+	char *cmd, *output = NULL;
+	size_t output_size = 0;
+	char buf[100], buf2[100] = "";
+	const char *keyid = settings_get_str("xmpp_pgp");
+	int send_password = keyid && !settings_get_str("xmpp_pgp_agent");
+
+	/* If no keyID, then we don't need a password */
+	if(send_password) {
+		if(pipe(pass_pipe)) goto pgp_error;
+		if(!pgp_passwd) pgp_passwd = get_password("OpenPGP Password:");
+		if(!pgp_passwd) goto pgp_error;
+
+		if(write(pass_pipe[1], pgp_passwd, strlen(pgp_passwd)) < 0) goto pgp_error;
+		if(close(pass_pipe[1])) goto pgp_error;
+	}
+
+	if(input2) {
+		if(pipe(input2_pipe)) goto pgp_error;
+		if(write(input2_pipe[1], input2, strlen(input2)) < 0) goto pgp_error;
+		if(close(input2_pipe[1])) goto pgp_error;
+	}
+
+	cmd = malloc(sizeof("gpg --enable-special-filenames -u ''" \
+	             "--passphrase-fd '' --trust-model always" \
+	             " -qo - --batch --no-tty - '' '-&'") \
+	             +1+strlen(switches)+ \
+	             (keyid ? strlen(keyid) : 0)+ \
+	             (send_password ? 5 : 0)+ \
+	             (input2 ? 5 : 0));
+	if(keyid) {
+		strcpy(cmd, "gpg -u '");
+		strcat(cmd, keyid);
+		strcat(cmd, "' ");
+		if(send_password) {
+			sprintf(cmd+strlen(cmd), "--passphrase-fd '%d' ", pass_pipe[0]);
+		}
+	} else {
+		strcpy(cmd, "gpg ");
+	}
+	strcat(cmd, switches);
+	strcat(cmd, " --enable-special-filenames --trust-model always -qo -" \
+	            " --batch --no-tty - ");
+
+	if(input2) {
+		sprintf(cmd+strlen(cmd), "'-&%d'", input2_pipe[0]);
+	}
+
+	fflush(NULL);
+	childpid = popenRWE(rwepipe, cmd);
+
+	if(write(rwepipe[0], input, strlen(input)) < 0) goto pgp_error;
+	if(close(rwepipe[0])) goto pgp_error;
+
+	if(get_stderr) {
+		cstream = fdopen(rwepipe[2], "r");
+	} else {
+		cstream = fdopen(rwepipe[1], "r");
+	}
+	if(!cstream) goto pgp_error;
+
+	while(fgets(buf, sizeof(buf)-1, cstream)) {
+		if(strlen(buf2) > 0) {
+			output = realloc(output, output_size+strlen(buf2)+1);
+			if(!output) goto pgp_error;
+			if(output_size < 1) output[0] = '\0';
+			output_size += strlen(buf2);
+			strcat(output, buf2);
+		}
+
+		if(!in_data && buf[0] == '\n') {
+			in_data = 1;
+			continue;
+		} else if(in_data) {
+			strcpy(buf2, buf);
+		}
+	}
+
+	/* Get last line if not snipping */
+	if(!snip_data && strlen(buf2) > 0) {
+		output = realloc(output, output_size+strlen(buf2)+1);
+		if(!output) goto pgp_error;
+		if(output_size < 1) output[0] = '\0';
+		output_size += strlen(buf2);
+		strcat(output, buf2);
+	}
+
+	// http://www.gnu-darwin.org/www001/src/ports/security/libgpg-error/work/libgpg-error-1.5/src/err-codes.h.in
+	// 11	GPG_ERR_BAD_PASSPHRASE		Bad passphrase
+	// 31	GPG_ERR_INV_PASSPHRASE		Invalid passphrase
+	int exit_status = WEXITSTATUS(pcloseRWE(childpid, rwepipe));
+	if(round > 0 && (exit_status == 11 || exit_status == 31)) {
+		g_free(pgp_passwd);
+		pgp_passwd = NULL;
+		output = call_gpg_round(switches, input, input2, get_stderr,
+					snip_data, round--);
+	}
+
+done:
+	if(send_password)  close(pass_pipe[0]);
+	if(input2)         close(input2_pipe[0]);
+	free(cmd);
+
+	return output;
+pgp_error:
+	output = NULL;
+	goto done;
+}
+
+
+char *call_gpg(char *switches, char *input, char *input2, \
+               int get_stderr, int snip_data, unsigned round) {
+	return call_gpg_round(switches, input, input2, get_stderr,
+	                      snip_data, 3);
+}
+
+
 
 static gboolean
 xmpp_get_local_charset(const char **charset)
